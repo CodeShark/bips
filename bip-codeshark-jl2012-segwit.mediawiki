@@ -39,97 +39,63 @@ By removing this data from the transaction structure committed to the transactio
 
 === Commitment structure ===
 
-!!!DRAFT ONLY!!!
+A new block rule is added which requires a commitment to the witness hashes.
 
-A new block rule is added which requires a commitment to the witness hashes in the coinbase (or an OP_RETURN output of a specific transaction, or somewhere else)
+Witness hash is the double SHA256 of a transaction including witnesses: 
+<img src=http://blockhawk.net/diagrams/witnesstx.png></img>
 
-(Hardfork after x year to move the commitment to block header?)
-
-Witness hash is the double SHA256 of a transaction including witnesses: http://blockhawk.net/diagrams/witnesstx.png. For the coinbase transaction, its witness hash is assumed to be 0x0000....0000.
+For the coinbase transaction, its witness hash is assumed to be 0x0000....0000.
 
 A witness root hash is calculated with all those witness hashes as leaves, in a way similar to the hashMerkleRoot in the block header.
 
-No witness data is allowed in blocks that don't commit to witness data, as this would otherwise leave room from spam.
+The commitment is a scriptPubKey of coinbase transaction with an OP_RETURN followed by a push of exactly 36 bytes:
+  
+  The first 4 bytes are commitment header: 0xaa21a9ed
+  The next 32 bytes is a commitment hash
+  
+where the commitment hash is:
+  
+  Double SHA256 (witness root hash|arbitrary 32-byte value)
 
-==== Proposal 1: balance tree (the current implementation) ====
-The commitment is a push of exactly 41 bytes:
-*The first 4 bytes are commitment header: 0xaa21a9ed
-*The next 4 bytes describe a nonce
-*The next 1 byte is the "levels bytes", describes the number of levels in a Merkle tree (0 to 32)
-*The next 32 bytes is a commitment root hash (not the witness root hash)
+and the coinbase's input's witness must consist of a single 32-byte array for the arbitrary value.
 
-Locator of the witness root hash is defined as:
+If there are more than one scriptPubKey match the pattern, the one with highest output index is assumed to be the commitment.
 
-<pre>SHA256('WitnessV1\x00\x00\x00\x00\x00\x00\x00' || nonce)</pre>
+=== Witness program ===
 
-The first levels bits of locator, interpreted in little endian, are assumed to be the position in the leaves of the Merkle tree where the witness root hash goes.
+A scriptPubKey (or redeemScript as defined in BIP16/P2SH) that consists of a 1-byte push opcode (for 0 to 16) followed by a data push between 2 and 32 bytes gets a new special meaning. The value of the first push is called the "version byte". The following byte vector pushed is called the "witness program".
 
-The coinbase's input's witness must consist of a single byte array of 32 * levels bytes, and are assumed to be the Merkle path to connect the witness root hash to the commitment root hash.
+New rules for scriptSig:
+* In case the scriptPubKey pushes a version byte and witness program directly, the scriptSig must be exactly empty.
+* In case the redeemScript pushes a version byte and witness program, the scriptSig must be exactly the single push of the redeemScript.
 
-====Proposal 2: imbalance tree====
-The commitment is a push of exactly 40 bytes:
-*The first 4 bytes are commitment header: 0xaa21a9ed
-*The next 4 bytes describe a nonce
-*The next 32 bytes is a commitment root hash (not the witness root hash)
+If the version byte is 0, the witness program is the actual script.
+* The script is executed after normal script evaluation but with data from the witness rather than the scriptSig.
+* The program must not fail, and result in exactly a single TRUE on the stack.
 
-Locator of the witness root hash is defined as:
+If the version byte is 1, the witness program must be 32 bytes, as a SHA256 hash of the actual script.
+* The witness must consist of an input stack to feed to the program, followed by the serialized program.
+* The serialized program is popped off the initial witness stack. Hash of the serialized program must match the hash pushed in the witness program.
+* The serialized program is deserialized, and executed after normal script evaluation with the remaining witness stack.
+* The script must not fail, and result in exactly a single TRUE on the stack.
 
-<pre>SHA256('WitnessV1\x00\x00\x00\x00\x00\x00\x00' || nonce)</pre>
+If the version byte is 2 to 16, no further interpretation of the witness program or witness happens.
 
-The first levels bits of locator, interpreted in little endian, are assumed to be the position in the leaves of the Merkle tree where the witness root hash goes.
+=== Other consensus critical limits ===
 
-The coinbase's input's witness must consist of a single byte array, which the size must be a multiple of 32 bytes but not bigger than 32*32 bytes. These are assumed to be the Merkle path to connect the witness root hash to the commitment root hash. Depth of the commitment is determined by the length of the path. If the depth of the tree is 0, the path should be represented by 0x00, and the witness root hash will be same as the commitment root hash.
+==== Block size ====
 
-=== Block size limit ===
-Blocks are currently limited to 1 MB total size. We change this restriction as follows:
+Blocks are currently limited to 1 MB (1,000,000 Bytes) total size. We change this restriction as follows:
 
 We define a base block size s<sub>b</sub> consisting of the existing header and transactions, a witness size s<sub>w</sub> consisting of only the size of the witness data, and a virtual block size s<sub>v</sub> = s<sub>b</sub> + s<sub>w</sub>/4.
 
 The new rule is s<sub>v</sub> <= 1 MB.
 
-=== Witness program ===
+==== Sigops ====
 
-* A scriptPubKey (or redeemScript as defined in BIP16/P2SH) that consists of a 1-byte push opcode (for 0 to 16) followed by a data push between 2 and 32 bytes gets a new special meaning. The value of the first push is called the "version byte". The following byte vector pushed is called the "witness program".
-** In case the scriptPubKey pushes a version byte and witness program directly, the scriptSig must be exactly empty.
-** In case the redeemScript pushes a version byte and witness program, the scriptSig must be exactly the single push of the redeemScript.
+Sigops per block is currently limited to 20,000. We change this restriction as follows:
 
-** If the version byte is 0, the WP is the actual script.
-*** The script is executed after normal script evaluation but with data from the witness rather than the scriptSig.
-*** The program must not fail, and result in exactly a single TRUE on the stack.
-** If the version byte is 1, the WP must be 32 bytes, as a SHA256 hash of the actual script.
-*** The witness must consist of an input stack to feed to the program, followed by the serialized program.
-*** The serialized program is popped off the initial witness stack. Hash of the serialized program must match the hash pushed in the witness program.
-*** The serialized program is deserialized, and executed after normal script evaluation with the remaining witness stack.
-*** The script must not fail, and result in exactly a single TRUE on the stack.
-** If the version byte is 2 to 16, no further interpretation of the witness program or witness happens.
-
-=== Other consensus critical constraints ===
-
-== Block size analysis ==
-WORK IN PROGRESS
-
-Definitions:
-<pre>
- Core block size (CBS): The block size as seen by a non-upgrading full node
- Witness size (WS): The total size of witness data in a block
- Total block size (TBS): CBS + WS
- Witness discount (WD): A discount factor for witness data in VBS calculation (1 = no discount)
- Virtual block size (VBS): CBS + (WS * WD)
- Witness adoption (WA): Proportion (in size) of new format transactions among all transactions
- Prunable ratio (PR): Proportion of signature data size in a transaction
-</pre>
-
-With some transformation it could be shown that:
-<pre>
- TBS = CBS / (1 - WA * PR)
-     = VBS / (1 - WA * PR * (1 - WD))
-</pre>
-
-In order to keep the proposal as a soft fork, the CBS must not have a upper limit higher than 1MB.
-
-The PR heavily depends on the transaction script type and input-output ratio. For example, the PR of 1-in 2-out P2PKH and 1-in 1-out 2-of-2 multisig P2SH are about 47% and 72% respectively. According to the data presented by Pieter Wuille on 7 December 2015, the current average PR on the blockchain is about 60%.
-
-
+Sigops in traditional scripts + Sigops in segregated witness scripts / 4 <= 20,000.
 
 == Examples ==
 
@@ -186,6 +152,19 @@ The only item in scriptSig is hashed with HASH160, compared against the 20-byte-
 The version 1 witness program is then executed as described in the last example
 
 Comparing with the last example, the scriptPubKey is 11 bytes smaller (with reduced security) while witness is the same. However, it also requires 35 bytes in scriptSig, which is not prunable in transmission. Although a nested witness program is less efficient in many ways, its payment address is fully transparent and backward compatible for all Bitcoin reference client since version 0.6.0.
+
+=== Extensible commitment structure ===
+
+The new commitment in coinbase transaction is a hash of the witness root hash and an arbitrary 32-byte value. The arbitrary value which currently has no consensus meaning, serves two purposes.
+
+* It allows new commitment values for future softforks. For example, if a new consensus-critical commitment is required in the future, the commitment in coinbase becomes:
+  
+  Hash(Witness root hash|Hash(new commitment|arbitrary 32-byte value))
+
+:: For backward compatibility, the Hash(new commitment|arbitrary 32-byte value) will go to the coinbase witness, and the arbitrary 32-byte value will be recorded in another location specified by the future softfork. Any number of new commitment could be added in this way.
+
+* Any commitments that are not consensus-critical to Bitcoin, such as merge-mining, may utilize this arbitrary value. However, they must not be committed directly as the arbitrary value, or the external system may be forced to hardfork when Bitcoin introduces more consensus-critical commitments. Instead, they should use the arbitrary value as the root of an extensible commitment tree, and should not make any assumption about the location and depth of their commitments in the tree. For example, in the external system, it may use a flag to indicate actual location of the commitments with the Merkle paths provided.
+
 
 === Trust-free unconfirmed transaction dependency chain ===
 Segregated witness fixes the problem of transaction malleability fundamentally, which enables the building of unconfirmed transaction dependency chains in a trust-free manner.
