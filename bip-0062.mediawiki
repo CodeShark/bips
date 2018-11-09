@@ -1,15 +1,25 @@
+'''NOTICE: This document is a work in progress and is not complete, implemented, or otherwise suitable for deployment.'''
+
 <pre>
   BIP: 62
+  Layer: Consensus (soft fork)
   Title: Dealing with malleability
   Author: Pieter Wuille <pieter.wuille@gmail.com>
-  Status: Draft
+  Comments-Summary: No comments yet.
+  Comments-URI: https://github.com/bitcoin/bips/wiki/Comments:BIP-0062
+  Status: Withdrawn
   Type: Standards Track
   Created: 2014-03-12
+  License: BSD-2-Clause
 </pre>
 
 ==Abstract==
 
 This document specifies proposed changes to the Bitcoin transaction validity rules in order to make malleability of transactions impossible (at least when the sender doesn't choose to avoid it).
+
+==Copyright==
+
+This BIP is licensed under the 2-clause BSD license.
 
 ==Motivation==
 
@@ -38,7 +48,7 @@ The first six and part of the seventh can be fixed by extra consensus rules, but
 ===New rules===
 
 Seven extra rules are introduced, to combat exactly the seven first sources of malleability listed above:
-# '''Canonically encoded ECDSA signatures''' An ECDSA signature passed to OP_CHECKSIG, OP_CHECKSIGVERIFY, OP_CHECKMULTISIG or OP_CHECKMULTISIGVERIFY must be encoded using strict DER encoding. To provide a compact way to deliberately create an invalid signature for with OP_CHECKSIG and OP_CHECKMULTISIG the empty byte array (the result of OP_0) is also allowed. Doing a verification with a non-DER signature makes the entire script evaluate to False (not just the signature verification). See reference: [[#der-encoding|DER encoding]].
+# '''Canonically encoded ECDSA signatures''' An ECDSA signature passed to OP_CHECKSIG, OP_CHECKSIGVERIFY, OP_CHECKMULTISIG or OP_CHECKMULTISIGVERIFY must be encoded using strict DER encoding. To provide a compact way to deliberately create an invalid signature for OP_CHECKSIG and OP_CHECKMULTISIG, an empty byte array (i.e., the result of OP_0) is also allowed. Doing a verification with a non-DER signature makes the entire script evaluate to False (not just the signature verification). See reference: [[#der-encoding|DER encoding]].
 # '''Non-push operations in scriptSig''' Only data pushes are allowed in scriptSig. Evaluating any other operation makes the script evaluate to false. See reference: [[#push-operators|Push operators]].
 # '''Push operations in scriptSig of non-standard size type''' The smallest possible push operation must be used when possible. Pushing data using an operation that could be encoded in a shorter way makes the script evaluate to false. See reference: [[#push-operators|Push operators]].
 # '''Zero-padded number pushes''' Any time a script opcode consumes a stack value that is interpreted as a number, it must be encoded in its shortest possible form. 'Negative zero' is not allowed. See reference: [[#numbers|Numbers]].
